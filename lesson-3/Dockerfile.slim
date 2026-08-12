@@ -1,0 +1,58 @@
+# Dockerfile.slim
+#
+# Оптимізований (slim) multi-stage образ для inference MobileNetV2.
+#
+# Stage 1 "builder": встановлює системні build-залежності та Python-пакети
+#                     у --user-каталог (щоб їх можна було скопіювати окремо).
+# Stage 2 "runtime":  мінімальний python:3.13-slim, у який копіюються лише
+#                     встановлені Python-пакети + код + модель.
+#                     Жодних build-інструментів, git, кешів apt/pip у
+#                     фінальному образі немає.
+
+# ---------- Stage 1: builder ----------
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+
+# python:3.13-slim не містить компіляторів / заголовкових файлів,
+# які потрібні деяким колесам (wheels) під час збірки — встановлюємо
+# лише на цій стадії, вона не потрапить у фінальний образ.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libjpeg-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+# Встановлюємо пакети у окремий префікс /install, щоб потім скопіювати
+# ЦІЛИЙ префікс у системні шляхи runtime-образу. Це надійніше, ніж
+# --user + ручний PYTHONPATH: не залежить від змінних середовища,
+# HOME користувача чи того, під яким user'ом виконується CMD —
+# пакети просто фізично лежать там, де Python їх шукає за замовчуванням.
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---------- Stage 2: runtime ----------
+FROM python:3.13-slim AS runtime
+
+WORKDIR /app
+
+# Мінімальні системні бібліотеки, необхідні у RUNTIME (не для збірки)
+# для роботи Pillow/torchvision з зображеннями JPEG/PNG.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libjpeg62-turbo \
+    zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копіюємо готовий префікс з пакетами прямо у системні шляхи
+# python:3.13-slim (/usr/local) — жодних ENV PYTHONPATH не потрібно,
+# інтерпретатор знаходить пакети "з коробки" за стандартним sys.path.
+COPY --from=builder /install /usr/local
+
+# Копіюємо лише необхідний код і артефакти (без .git, кешів, virtualenv —
+# додатково гарантується через .dockerignore)
+COPY app/ ./app/
+COPY model/ ./model/
+COPY example.jpg .
+
+ENTRYPOINT ["python3", "app/inference.py"]
+CMD ["example.jpg"]

@@ -1,0 +1,40 @@
+# Dockerfile.fat
+#
+# "Важкий" (fat) образ для inference MobileNetV2.
+# Свідомо простий: одна стадія, повний python:3.13 базовий образ,
+# без чищення apt-кешу / pip-кешу. Використовується як база для
+# порівняння з оптимізованим Dockerfile.slim.
+
+FROM python:3.13
+
+WORKDIR /app
+
+# 1. Системні залежності (повний набір інструментів збірки — навмисно
+#    не мінімізуємо, щоб показати "типовий" важкий образ)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libjpeg-dev \
+    zlib1g-dev \
+    libpng-dev \
+    curl \
+    git \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Python-залежності
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 3. Код застосунку
+COPY app/ ./app/
+COPY export_model.py .
+
+# 4. Модель (припускаємо, що вже експортована локально через export_model.py)
+COPY model/ ./model/
+
+# 5. Тестове зображення (для зручності перевірки без bind mount)
+COPY example.jpg .
+
+# 6. Запуск inference за замовчуванням
+ENTRYPOINT ["python3", "app/inference.py"]
+CMD ["example.jpg"]

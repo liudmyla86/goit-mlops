@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Python caches / bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Package build artifacts
+*.egg-info/
+build/
+dist/
+
+# Logs
+install.log
+*.log
+
+# OS / editor junk
+.DS_Store
+.idea/
+.vscode/
+
+# Archives created for LMS submission
+*.zip
+
+# Docs not needed inside the image
+README.md
+report.md

@@ -1,0 +1,41 @@
+[2026-08-12 13:36:47] Старт перевірки середовища (install_dev_tools.sh)
+[2026-08-12 13:36:47] Операційна система: MINGW64_NT-10.0-26200 Liudmyla 3.6.9-b4195d69.x86_64 2026-06-06 17:49 UTC x86_64 Msys
+[2026-08-12 13:36:47] 
+[2026-08-12 13:36:47] ==== Перевірка Docker ====
+[2026-08-12 13:36:48] OK: Docker знайдено -> Docker version 29.7.2, build a7dcaa6
+[2026-08-12 13:36:48] 
+[2026-08-12 13:36:48] ==== Перевірка Docker Compose V2 ====
+[2026-08-12 13:36:49] OK: Docker Compose V2 знайдено -> Docker Compose version v5.3.1
+[2026-08-12 13:36:49] 
+[2026-08-12 13:36:49] ==== Перевірка Python >= 3.13 ====
+[2026-08-12 13:36:50] УВАГА: Знайдено Python was, потрібна версія >= 3.13.
+[2026-08-12 13:36:50] ІНСТРУКЦІЯ: встановіть Python 3.13, наприклад:
+[2026-08-12 13:36:50]   sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get update
+[2026-08-12 13:36:50]   sudo apt-get install -y python3.13 python3.13-venv python3.13-dev
+[2026-08-12 13:36:50] 
+[2026-08-12 13:36:50] ==== Перевірка pip ====
+[2026-08-12 13:36:51] OK: pip знайдено -> pip 25.3 from C:\Users\liudm\AppData\Roaming\Python\Python313\site-packages\pip (python 3.13)
+[2026-08-12 13:36:51] 
+[2026-08-12 13:36:51] ==== Перевірка ML-залежностей (torch, torchvision, pillow) ====
+[2026-08-12 13:36:52] УВАГА: torch не знайдено. Спроба встановлення через pip...
+
+[notice] A new release of pip is available: 25.3 -> 26.2.1
+[notice] To update, run: python.exe -m pip install --upgrade pip
+[2026-08-12 13:36:54] ПОМИЛКА: не вдалося встановити torch автоматично.
+[2026-08-12 13:36:54] ІНСТРУКЦІЯ: встановіть вручну -> pip3 install torch
+[2026-08-12 13:36:54] УВАГА: torchvision не знайдено. Спроба встановлення через pip...
+
+[notice] A new release of pip is available: 25.3 -> 26.2.1
+[notice] To update, run: python.exe -m pip install --upgrade pip
+[2026-08-12 13:36:56] ПОМИЛКА: не вдалося встановити torchvision автоматично.
+[2026-08-12 13:36:56] ІНСТРУКЦІЯ: встановіть вручну -> pip3 install torchvision
+[2026-08-12 13:36:56] УВАГА: pillow не знайдено. Спроба встановлення через pip...
+
+[notice] A new release of pip is available: 25.3 -> 26.2.1
+[notice] To update, run: python.exe -m pip install --upgrade pip
+[2026-08-12 13:36:58] ПОМИЛКА: не вдалося встановити pillow автоматично.
+[2026-08-12 13:36:58] ІНСТРУКЦІЯ: встановіть вручну -> pip3 install pillow
+[2026-08-12 13:36:58] 
+[2026-08-12 13:36:58] ==== Підсумок перевірки ====
+[2026-08-12 13:36:58] УВАГА: деякі компоненти потребують ручного втручання (див. інструкції вище).
+[2026-08-12 13:36:58] Повний лог збережено у: /c/Users/liudm/Downloads/lesson-3(1)/lesson-3/install.log
