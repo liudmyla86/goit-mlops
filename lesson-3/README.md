@@ -1,119 +1,117 @@
-# Домашнє завдання №3 — Контейнеризація ML-моделі (fat vs slim)
+ Homework #3 — ML Model Containerization (fat vs slim)
 
-Проєкт демонструє повний MLOps-цикл для простої inference-задачі:
-підготовка середовища → експорт моделі у TorchScript → написання
-inference-скрипта → побудова двох Docker-образів (fat / slim) →
-порівняння результатів і розмірів образів.
+This project demonstrates a complete MLOps cycle for a simple inference
+task: environment setup → model export to TorchScript → writing an
+inference script → building two Docker images (fat / slim) → comparing
+results and image sizes.
 
-Модель: **MobileNetV2** (ImageNet, 1000 класів) з `torchvision.models`,
-експортована у формат **TorchScript** (`torch.jit.trace`).
+Model: **MobileNetV2** (ImageNet, 1000 classes) from `torchvision.models`,
+exported to **TorchScript** format (`torch.jit.trace`).
 
-## Структура проєкту
+## Project Structure
 
-```
 lesson-3/
 ├── app/
-│   └── inference.py        # inference-скрипт (top-3 передбачення)
+│ └── inference.py # inference script (top-3 predictions)
 ├── model/
-│   └── model.pt             # TorchScript-модель (створюється export_model.py)
+│ └── model.pt # TorchScript model (created by export_model.py)
 ├── scripts/
-│   └── install_dev_tools.sh # перевірка/підготовка середовища
-├── export_model.py          # експорт MobileNetV2 -> TorchScript
-├── requirements.txt         # torch / torchvision / pillow
-├── Dockerfile.fat            # "важкий" образ (python:3.13)
-├── Dockerfile.slim           # оптимізований multi-stage образ (python:3.13-slim)
+│ └── install_dev_tools.sh # environment check/setup script
+├── screenshots/ # screenshots of real runs (build, run, inference)
+├── export_model.py # export MobileNetV2 -> TorchScript
+├── requirements.txt # torch / torchvision / pillow
+├── Dockerfile.fat # "heavy" image (python:3.13)
+├── Dockerfile.slim # optimized multi-stage image (python:3.13-slim)
 ├── .dockerignore
-├── example.jpg               # тестове зображення
-├── report.md                  # порівняння fat vs slim
+├── example.jpg # test image (dog, golden retriever)
+├── report.md # fat vs slim comparison with real metrics
 └── README.md
-```
 
-## Вимоги
+
+## Requirements
 
 - Docker + Docker Compose V2 (`docker compose version`)
 - Python **3.13**+
 - pip3
-- Пакети: `torch`, `torchvision`, `pillow` (версії — див. `requirements.txt`)
+- Packages: `torch==2.7.0`, `torchvision==0.22.0`, `pillow==11.2.1` (see `requirements.txt`)
 
-## 1. Підготовка середовища
+## 1. Environment Setup
 
 ```bash
 bash scripts/install_dev_tools.sh
 ```
 
-Скрипт ідемпотентний: перевіряє наявність Docker, Docker Compose V2,
-Python ≥ 3.13, pip та ML-бібліотек; те, чого бракує, намагається
-встановити автоматично або виводить точну інструкцію. Усі результати
-записуються у `install.log`.
+The script is idempotent: it checks for Docker, Docker Compose V2,
+Python ≥ 3.13, pip, and the required ML libraries; anything missing is
+either installed automatically or a precise instruction is printed. All
+results are logged to `install.log`. Verified by running twice in a
+row — the second run performs no repeated `pip install` calls and simply
+confirms `OK: already installed`.
 
-## 2. Локальна перевірка (без Docker)
+## 2. Local Verification (without Docker)
 
-Встановити залежності:
-
-```bash
-pip3 install -r requirements.txt
-```
-
-Експортувати модель у TorchScript:
+Install dependencies:
 
 ```bash
-python3 export_model.py
-# -> створює model/model.pt
+pip install -r requirements.txt
 ```
 
-Запустити inference локально:
+Export the model to TorchScript:
 
 ```bash
-python3 app/inference.py example.jpg
+python export_model.py
+# -> downloads pretrained MobileNetV2 weights and creates model/model.pt
 ```
 
-Приклад виводу:
+Run inference locally:
 
-```
-Top-3 передбачення для 'example.jpg':
-  1. class_id=281  tabby cat                       confidence=0.4123
-  2. class_id=282  tiger cat                        confidence=0.2210
-  3. class_id=285  Egyptian cat                     confidence=0.0876
+```bash
+python app/inference.py example.jpg
 ```
 
-*(конкретні значення залежать від вмісту `example.jpg`)*
+Real result for `example.jpg` (photo of a dog on the beach):
 
-## 3. Збірка Docker-образів
+Top-3 predictions for 'example.jpg':
 
-Fat-образ (простий, python:3.13, одна стадія):
+class_id=207 golden retriever confidence=0.3226
+class_id=213 Irish setter confidence=0.0683
+class_id=209 Chesapeake Bay retriever confidence=0.0575
+
+## 3. Building Docker Images
+
+Fat image (simple, python:3.13, single stage):
 
 ```bash
 docker build -f Dockerfile.fat -t ml-infer-fat:1.0 .
 ```
 
-Slim-образ (multi-stage, python:3.13-slim):
+Slim image (multi-stage, python:3.13-slim):
 
 ```bash
 docker build -f Dockerfile.slim -t ml-infer-slim:1.0 .
 ```
 
-## 4. Запуск інференсу в контейнерах
+## 4. Running Inference in Containers
 
-Обидва образи вже містять `example.jpg` і `model/model.pt` усередині
-(скопійовані під час збірки), тому їх можна запускати без bind mount:
+Both images already contain `example.jpg` and `model/model.pt` inside
+(copied during the build), so they can be run without a bind mount:
 
 ```bash
 docker run --rm ml-infer-fat:1.0
 docker run --rm ml-infer-slim:1.0
 ```
 
-Або явно передати інше зображення через bind mount:
+Or explicitly pass a different image via bind mount:
 
 ```bash
 docker run --rm -v "$(pwd)/example.jpg:/app/example.jpg" ml-infer-fat:1.0 example.jpg
 docker run --rm -v "$(pwd)/example.jpg:/app/example.jpg" ml-infer-slim:1.0 example.jpg
 ```
 
-Результати top-3 передбачень мають збігатися (або відрізнятись лише в
-межах незначної числової похибки), оскільки обидва образи
-використовують той самий файл `model/model.pt`.
+Top-3 predictions **fully match** across both images (verified with a
+real build — see `report.md`).
 
-## 5. Порівняння образів
+## 5. Comparing Images
 
 ```bash
 docker images | grep ml-infer
@@ -121,63 +119,40 @@ docker history ml-infer-fat:1.0
 docker history ml-infer-slim:1.0
 ```
 
-Деталі та висновки — у [`report.md`](./report.md).
+Real results:
 
-## 6. Скріншоти (обов'язково)
+| Metric | Fat | Slim |
+|---|---|---|
+| Image size | 6.75 GB | 5.71 GB |
+| Number of layers | 22 | 17 |
 
-Додайте сюди 4 скріншоти реальних запусків на вашій машині —
-це підтвердження, що код дійсно виконувався, а не лише написаний:
+Full analysis, heaviest layers, and optimization suggestions — see [`report.md`](./report.md).
 
-1. **Збірка обох образів** (`docker build -f Dockerfile.fat ...` та
-   `docker build -f Dockerfile.slim ...`, повний вивід до `Successfully built`):
+## 6. Screenshots
 
-   `![build fat](./screenshots/01_build_fat.png)`
-   `![build slim](./screenshots/02_build_slim.png)`
+Real runs on the local machine (Docker Desktop, Windows, Git Bash):
 
-2. **Запуск контейнерів** (`docker run ...` для обох образів):
+**Building the fat image:**
+![build fat](./screenshots/mlops%203.1.png)
 
-   `![run fat](./screenshots/03_run_fat.png)`
-   `![run slim](./screenshots/04_run_slim.png)`
+**Building the slim image:**
+![build slim](./screenshots/mlops%203.2.png)
 
-3. **Результат inference** — top-3 класи на екрані для обох образів
-   (може бути той самий скріншот, що й пункт 2, якщо вивід top-3
-   видно на ньому):
+**Inference result / image comparison:**
+![inference result](./screenshots/mlops%203.3.png)
 
-   `![inference result](./screenshots/05_inference_result.png)`
+**`docker images` — size of both images:**
+![docker images](./screenshots/mlops%203.4.png)
 
-4. **`docker images | grep ml-infer`** з видимими розмірами обох образів:
+## Source of example.jpg
 
-   `![docker images](./screenshots/06_docker_images.png)`
+`example.jpg` is a photo of a golden retriever dog on a beach, used to
+verify the correctness of the inference pipeline and the consistency of
+results between the fat and slim images.
 
-Створіть папку `screenshots/` поруч із цим README і покладіть туди
-файли з відповідними іменами — тоді картинки в цьому файлі
-відобразяться автоматично на GitHub.
+## Note on the Development Environment
 
-## Джерело example.jpg
-
-`example.jpg` — синтетичне тестове RGB-зображення 224×224,
-згенероване локально (`PIL` + `numpy`, детермінований seed=42), що
-використовується виключно для перевірки коректності роботи
-inference-пайплайна (однаковість результату fat/slim-образів). Для
-змістовного прикладу класифікації рекомендується підмінити цей файл
-власною фотографією (наприклад, кота, собаки чи іншого об'єкта з
-набору ImageNet-класів) перед фінальною демонстрацією.
-
-## Примітка щодо середовища розробки
-
-Дана репозиторна структура була підготовлена та частково перевірена
-у пісочниці без Docker і без доступу до `download.pytorch.org`
-(звідки завантажуються попередньо натреновані ваги MobileNetV2).
-Через це:
-
-- логіка `export_model.py` та `app/inference.py` перевірена локально
-  (Python 3.12, з тимчасово незавантаженими / випадковими вагами
-  лише для тестування самого пайплайна трасування й inference);
-- фактична збірка `docker build` та реальні розміри образів у
-  `report.md` **потребують запуску на машині з Docker і доступом до
-  інтернету** (Docker Hub + download.pytorch.org) — команди в цьому
-  README готові до копіювання й запуску “як є”.
-
-Перед здачею обов'язково виконайте кроки 1–5 на своїй машині та
-підставте реальні цифри (розмір образів, кількість шарів, час
-збірки) у `report.md`.
+The project was fully built and verified on a real machine with Docker
+Desktop (Windows, Git Bash / MINGW64): both images were built and run
+successfully, top-3 predictions match, and real sizes/layer counts are
+recorded in `report.md`.
