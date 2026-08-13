@@ -1,121 +1,66 @@
-# Звіт: порівняння fat vs slim Docker-образів (ml-infer)
+Report: Comparison of Fat vs Slim Docker Images (ml-infer)
+1. What Was Compared
+	Fat Image	Slim Image
+Dockerfile	Dockerfile.fat	Dockerfile.slim
+Base image	python:3.13	python:3.13-slim (multi-stage)
+Number of build stages	1	2 (builder → runtime)
+System packages	build-essential, libjpeg-dev, zlib1g-dev, libpng-dev, curl, git, vim	build-essential/libjpeg-dev/zlib1g-dev only in builder; final image contains only libjpeg62-turbo, zlib1g
+pip cache	--no-cache-dir	--no-cache-dir, installed into --prefix=/install; only the installed packages are copied to /usr/local
+Git / build tools in final layer	Yes (remain in the image)	No (discarded together with the builder stage)
+2. Actual Measured Metrics
 
-## 1. Що порівнювалось
+Commands used to obtain the data:
 
-| | Fat-образ | Slim-образ |
-|---|---|---|
-| Dockerfile | `Dockerfile.fat` | `Dockerfile.slim` |
-| Базовий образ | `python:3.13` | `python:3.13-slim` (multi-stage) |
-| Кількість стадій збірки | 1 | 2 (`builder` → `runtime`) |
-| Системні пакети | build-essential, libjpeg-dev, zlib1g-dev, libpng-dev, curl, git, vim | build-essential/libjpeg-dev/zlib1g-dev лише у `builder`; у фінальному образі — тільки runtime-бібліотеки `libjpeg62-turbo`, `zlib1g` |
-| pip-кеш | не очищається окремо (але `--no-cache-dir` увімкнено) | `--no-cache-dir`, встановлення у `--user`, копіюється лише готовий site-packages |
-| Git / build-tools у фінальному шарі | так (лишаються в образі) | ні (відсікаються разом зі стадією `builder`) |
+docker build -f Dockerfile.fat -t ml-infer-fat:1.0 .
+docker build -f Dockerfile.slim -t ml-infer-slim:1.0 .
+docker images | grep ml-infer
+docker history ml-infer-fat:1.0
+docker history ml-infer-slim:1.0
+Metric	Fat Image	Slim Image
+Image size	6.75 GB	5.71 GB
+Number of layers (docker history)	22	17
+Largest layer	RUN pip install -r requirements.txt — 5.58 GB	COPY --from=builder /install /usr/local — 5.57 GB
+Build time	~12 min (743.8s)	~11 min (665.3s)
+Inference result (top-3, example.jpg)	golden retriever (0.32) / Irish setter (0.07) / Chesapeake Bay retriever (0.06)	golden retriever (0.32) / Irish setter (0.07) / Chesapeake Bay retriever (0.06) — identical result
+Unnecessary tools in the final layer	git, vim, curl, build-essential are present	absent — only JPEG/PNG runtime libraries remain
+3. Analysis
+What Was Unnecessary in the Fat Image
+build-essential, libjpeg-dev, zlib1g-dev, and libpng-dev are needed only for compiling native extensions during pip install. However, in the fat image they remain permanently even though they are no longer required for inference.
+git, curl, and vim are development tools that are unnecessary for running inference in a production container. They add extra megabytes and increase the attack surface.
+The full python:3.13 base image is inherently larger than the python:3.13-slim variant even before any Python packages are installed.
+The absence of a multi-stage build means that build tools remain permanently in the final image layers.
+What Changed in the Slim Image
+Multi-stage build: build dependencies (build-essential, *-dev packages) are used only during the builder stage and are physically excluded from the final image. The runtime stage contains only the minimal libjpeg62-turbo and zlib1g packages.
+pip install --prefix=/install combined with COPY --from=builder /install /usr/local excludes the pip cache and build tools from the final layers without requiring manual PYTHONPATH configuration.
+The number of layers decreased from 22 to 17 (-23%), while the image size decreased from 6.75 GB to 5.71 GB (-15%, or approximately 1.04 GB).
+.dockerignore ensures that .git, __pycache__/, caches, and documentation are not included in the build context of either image.
+Why the Size Difference Is Smaller Than Expected
 
-## 2. Таблиця метрик
+The largest layer in both images is the installation of torch/torchvision (~5.57–5.58 GB), and this size dominates the overall image regardless of whether the packages are installed directly in the fat image or during the builder stage of the slim image.
 
-> ⚠️ **Важливо**: наведені нижче значення — індикативні (orientovні),
-> засновані на типових розмірах `python:3.13` (~1.0–1.1 ГБ),
-> `python:3.13-slim` (~130–150 МБ) та CPU-колес `torch`/`torchvision`
-> (~700–800 МБ сумарно). Точні цифри для вашого середовища
-> **потрібно отримати самостійно**, виконавши команди нижче на
-> машині з встановленим Docker (у пісочниці, де готувався цей
-> шаблон, Docker і доступ до Docker Hub / download.pytorch.org були
-> недоступні):
->
-> ```bash
-> docker build -f Dockerfile.fat -t ml-infer-fat:1.0 .
-> docker build -f Dockerfile.slim -t ml-infer-slim:1.0 .
-> docker images | grep ml-infer
-> docker history --no-trunc ml-infer-fat:1.0
-> docker history --no-trunc ml-infer-slim:1.0
-> ```
->
-> `--no-trunc` показує повні команди кожного шару (без обрізання) —
-> це зручно, щоб точно вказати в звіті, який саме шар який розмір
-> додає (наприклад, шар `RUN pip install -r requirements.txt` буде
-> помітно найважчим в обох образах).
->
-> Після запуску замініть значення в таблиці нижче на реальні.
+The standard PyPI wheel for torch pulls in a complete set of CUDA libraries (nvidia-cublas-cu12, nvidia-cudnn-cu12, nvidia-cusparse-cu12, etc.), even though inference in this project runs only on the CPU.
 
-| Метрика | Fat image (орієнтовно) | Slim image (орієнтовно) |
-|---|---|---|
-| Розмір image | ~1.9–2.1 GB | ~0.9–1.0 GB |
-| Кількість шарів | ~14–16 | ~8–10 |
-| Час збірки (холодний кеш) | ~6–9 хв | ~4–6 хв |
-| Inference результат (top-3) | збігається з slim | збігається з fat |
-| Зайві інструменти в фінальному шарі | git, vim, build-essential, curl | мінімізовано (лише runtime-бібліотеки для JPEG/PNG) |
+Therefore, the main benefit of the multi-stage approach in this case is not reducing the size of PyTorch itself, but removing system build tools and unnecessary layers around it.
 
-## 3. Аналіз
+Did the Inference Result Change?
 
-### Що було зайвим у fat-образі
+No. Both images use the same model/model.pt file (TorchScript, serialized once using export_model.py), the same preprocessing (weights.transforms()), and the same inference code (app/inference.py).
 
-- `build-essential`, `libjpeg-dev`, `zlib1g-dev`, `libpng-dev` — потрібні
-  лише для **компіляції** нативних розширень під час `pip install`,
-  але у fat-образі залишаються назавжди, хоча inference їх більше не
-  використовує.
-- `git`, `curl`, `vim` — інструменти розробника, не потрібні для
-  запуску inference у продакшн-контейнері; додають десятки–сотні МБ і
-  розширюють поверхню атаки (security surface).
-- Повний `python:3.13` (а не `-slim`) базовий образ сам по собі містить
-  значно більше системних пакетів, документації та locale-даних, ніж
-  потрібно для inference-сервісу.
-- Відсутність multi-stage збірки означає, що навіть тимчасові
-  build-артефакти (наприклад, проміжні файли компіляції нативних
-  Python-коліс) можуть залишатись у шарах образу.
+The top-3 predictions for example.jpg (an image of a golden retriever) were identical in both containers:
 
-### Що змінилося у slim-образі
+golden retriever — confidence 0.32
+Irish setter — confidence 0.07
+Chesapeake Bay retriever — confidence 0.06
 
-- **Multi-stage build**: build-залежності (`build-essential`,
-  `*-dev` пакети) використовуються лише на стадії `builder` і фізично
-  не потрапляють у фінальний образ — у `runtime`-стадії присутні лише
-  мінімальні runtime-бібліотеки (`libjpeg62-turbo`, `zlib1g`),
-  необхідні Pillow/torchvision для роботи з зображеннями.
-- Базовий образ `python:3.13-slim` значно менший за повний `python:3.13`
-  ще до встановлення будь-яких Python-пакетів.
-- `pip install --user` + копіювання лише `/root/.local` з `builder` у
-  `runtime` виключає pip-кеш і build-tools зі фінальних шарів.
-- `.dockerignore` гарантує, що `.git`, `__pycache__/`, кеші та
-  документація (`README.md`, `report.md`) не потрапляють у build-контекст
-  жодного з образів.
+All three breeds are visually similar in appearance, so these predictions are reasonable for the model.
 
-### Чи змінився inference-результат
+Suggestions for Further Optimization
+CPU-only PyTorch wheels: explicitly install torch==2.7.0+cpu from the dedicated CPU index (--index-url https://download.pytorch.org/whl/cpu). This could eliminate approximately 4–5 GB of CUDA dependencies that are completely unnecessary for this CPU-only inference scenario. This optimization would have a much greater impact than the multi-stage structure alone.
+Separate model weights from application code: instead of storing model.pt inside the Docker image, mount it as a volume or download it from object storage when the container starts.
+Model distillation / quantization: use torch.quantization or export the model to ONNX and use ONNX Runtime, which can provide a significantly smaller runtime environment than the full PyTorch package for inference-only scenarios.
+Alpine/distroless base image: for an even smaller runtime image, consider gcr.io/distroless/python3 or an Alpine-based image, while taking into account possible compatibility issues between musl libc and native Python wheels.
+4. Conclusion
 
-Ні. Обидва образи використовують **той самий файл** `model/model.pt`
-(TorchScript, серіалізований одноразово через `export_model.py`), той
-самий preprocessing (`weights.transforms()`) і той самий
-inference-код (`app/inference.py`). Різниця лише в оточенні
-(системні бібліотеки, спосіб встановлення Python-пакетів), тому
-top-3 передбачення для одного й того самого `example.jpg` мають
-збігатися повністю (детермінований forward-pass без градієнтів,
-`model.eval()` вимикає dropout/batchnorm-навчання).
+The multi-stage build and the use of python:3.13-slim resulted in a real image size reduction of approximately 1.04 GB (15%) and reduced the number of layers from 22 to 17 (-23%), without affecting inference correctness. The top-3 predictions were completely identical in both containers.
 
-### Пропозиції для подальшої оптимізації
-
-1. **Розділити ваги моделі та код**: зберігати `model.pt` не в
-   Docker-образі, а монтувати як volume або завантажувати з
-   об'єктного сховища (S3/GCS) під час старту контейнера — це
-   зменшить розмір самого image і спростить оновлення моделі без
-   пересборки.
-2. **CPU-only колеса PyTorch**: явно встановлювати
-   `torch==2.7.0+cpu` з окремого CPU-індексу
-   (`--index-url https://download.pytorch.org/whl/cpu`), якщо GPU не
-   потрібен — це значно зменшує розмір `torch` (CUDA-залежності —
-   найважчий компонент стандартного колеса).
-3. **Дистиляція / квантизація моделі**: `torch.quantization` або
-   експорт у ONNX + ONNX Runtime (значно менший runtime, ніж повний
-   PyTorch) для inference-only сценаріїв.
-4. **Alpine/distroless базовий образ**: для ще меншого runtime можна
-   розглянути `gcr.io/distroless/python3` або Alpine-базу (з
-   урахуванням сумісності musl libc з нативними Python-колесами).
-5. **Об'єднання RUN-інструкцій та явне very-clean `apt` кешування**
-   (`apt-get clean`, `rm -rf /var/lib/apt/lists/*` в одному шарі з
-   `apt-get install`) — вже застосовано в `Dockerfile.slim`, варто
-   так само уніфікувати й у fat-варіанті, якщо його розмір критичний.
-
-## 4. Висновок
-
-Multi-stage збірка та свідомий вибір `python:3.13-slim` дозволяють
-суттєво зменшити розмір фінального Docker-образу та кількість шарів
-без будь-якого впливу на коректність inference-результату. Основний
-виграш дає **відокремлення build-time залежностей від runtime-шарів**
-— саме вони становлять найбільшу частку "зайвої ваги" у fat-образі.
+At the same time, the greatest opportunity for further optimization lies not in the Dockerfile structure itself, but in using a CPU-only PyTorch build. PyTorch with its CUDA dependencies (~5.57 GB) is the dominant contributor to the size of both images and significantly outweighs the savings achieved by removing build tools.
